@@ -1,0 +1,2 @@
+"""GitHub repository summarizer package."""
+

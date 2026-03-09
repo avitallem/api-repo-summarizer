@@ -79,32 +79,52 @@ class CallLlmTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["technologies"], ["Python"])
 
     async def test_call_llm_maps_invalid_json(self):
-        responses = [
-            FakeResponse(
-                200,
-                {"choices": [{"message": {"content": "not-json"}}]},
-            ),
-            FakeResponse(
-                200,
-                {"choices": [{"message": {"content": "still-not-json"}}]},
-            ),
-            FakeResponse(
-                200,
-                {"choices": [{"message": {"content": "not-json"}}]},
-            ),
-            FakeResponse(
-                200,
-                {"choices": [{"message": {"content": "still-not-json"}}]},
-            ),
-        ]
+        record = {"get": [], "post": []}
+        responses = [FakeResponse(200, {"choices": [{"message": {"content": "not-json"}}]})]
 
         with patch.dict("os.environ", {"NEBIUS_API_KEY": "test-key", "NEBIUS_MODEL": "fake-model"}, clear=True):
             with patch(
                 "app.llm_client.httpx.AsyncClient",
-                new=lambda **kwargs: FakeAsyncClient(post_responses=responses, **kwargs),
+                new=lambda **kwargs: FakeAsyncClient(post_responses=responses, record=record, **kwargs),
             ):
                 with self.assertRaises(AppError) as ctx:
                     await call_llm("system", "user")
 
         self.assertEqual(ctx.exception.status_code, 502)
         self.assertIn("invalid JSON", ctx.exception.message)
+        self.assertEqual(len(record["post"]), 1)
+
+    async def test_call_llm_fails_fast_on_schema_errors(self):
+        record = {"get": [], "post": []}
+        responses = [
+            FakeResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "summary": "A concise summary.",
+                                        "technologies": ["Python", "FastAPI"],
+                                        "structure": ["app/main.py", "app/llm_client.py"],
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                },
+            )
+        ]
+
+        with patch.dict("os.environ", {"NEBIUS_API_KEY": "test-key", "NEBIUS_MODEL": "fake-model"}, clear=True):
+            with patch(
+                "app.llm_client.httpx.AsyncClient",
+                new=lambda **kwargs: FakeAsyncClient(post_responses=responses, record=record, **kwargs),
+            ):
+                with self.assertRaises(AppError) as ctx:
+                    await call_llm("system", "user")
+
+        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertIn("invalid 'structure' field", ctx.exception.message)
+        self.assertEqual(len(record["post"]), 1)

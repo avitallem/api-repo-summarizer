@@ -123,17 +123,17 @@ async def call_llm(system_prompt: str, user_prompt: str) -> dict[str, Any]:
                 parsed["technologies"] = [str(item) for item in parsed["technologies"] if str(item).strip()]
                 return parsed
 
-            except AppError as exc:
+            except AppError:
+                raise
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last_error = exc
                 if attempt == 1:
                     break
-            except (httpx.TimeoutException, httpx.NetworkError, json.JSONDecodeError, KeyError) as exc:
-                last_error = exc
-                if attempt == 1:
-                    break
+            except json.JSONDecodeError as exc:
+                raise AppError(502, "LLM returned invalid JSON") from exc
+            except KeyError as exc:
+                raise AppError(502, "LLM returned unexpected response structure") from exc
 
-    if isinstance(last_error, json.JSONDecodeError):
-        raise AppError(502, "LLM returned invalid JSON")
     if isinstance(last_error, AppError):
         raise last_error
     if isinstance(last_error, (httpx.TimeoutException, httpx.NetworkError)):

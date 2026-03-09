@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
 
 from app.errors import AppError
 from app.github_fetcher import fetch_repo_tree, parse_github_url
@@ -8,6 +9,8 @@ from app.llm_client import call_llm
 from app.models import ErrorResponse, SummarizeRequest, SummarizeResponse
 from app.prompt import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 from app.repo_processor import build_context, filter_tree
+
+load_dotenv()
 
 app = FastAPI(title="GitHub Repo Summarizer", version="1.0.0")
 

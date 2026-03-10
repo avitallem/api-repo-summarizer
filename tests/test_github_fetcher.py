@@ -12,12 +12,59 @@ class ParseGitHubUrlTests(unittest.TestCase):
         owner, repo = parse_github_url(" https://github.com/octocat/hello-world.git ")
         self.assertEqual((owner, repo), ("octocat", "hello-world"))
 
+    def test_parse_valid_root_url_with_trailing_slash(self):
+        owner, repo = parse_github_url("https://github.com/octocat/hello-world/")
+
+        self.assertEqual((owner, repo), ("octocat", "hello-world"))
+
     def test_rejects_non_github_host(self):
         with self.assertRaises(AppError) as ctx:
             parse_github_url("https://example.com/octocat/hello-world")
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("Only github.com", ctx.exception.message)
+
+    def test_rejects_extra_path_segments(self):
+        with self.assertRaises(AppError) as ctx:
+            parse_github_url("https://github.com/octocat/hello-world/issues/1")
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("repository root URL", ctx.exception.message)
+
+    def test_rejects_tree_url(self):
+        with self.assertRaises(AppError) as ctx:
+            parse_github_url("https://github.com/octocat/hello-world/tree/main")
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("repository root URL", ctx.exception.message)
+
+    def test_rejects_query_string(self):
+        with self.assertRaises(AppError) as ctx:
+            parse_github_url("https://github.com/octocat/hello-world?tab=readme")
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("repository root URL", ctx.exception.message)
+
+    def test_rejects_fragment(self):
+        with self.assertRaises(AppError) as ctx:
+            parse_github_url("https://github.com/octocat/hello-world#readme")
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("repository root URL", ctx.exception.message)
+
+    def test_rejects_missing_repo(self):
+        with self.assertRaises(AppError) as ctx:
+            parse_github_url("https://github.com/octocat/")
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("owner and repository name", ctx.exception.message)
+
+    def test_rejects_empty_repo_segment(self):
+        with self.assertRaises(AppError) as ctx:
+            parse_github_url("https://github.com/octocat/.git")
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("missing owner or repository", ctx.exception.message)
 
 
 class FetchRepoTreeTests(unittest.IsolatedAsyncioTestCase):

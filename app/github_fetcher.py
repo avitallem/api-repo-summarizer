@@ -19,9 +19,14 @@ def parse_github_url(url: str) -> tuple[str, str]:
     if parsed.netloc.lower() != "github.com":
         raise AppError(400, "Only github.com repository URLs are supported")
 
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if parsed.query or parsed.fragment:
+        raise AppError(400, "GitHub URL must be a repository root URL without query parameters or fragments")
+
+    parts = [p for p in parsed.path.strip("/").split("/")]
     if len(parts) < 2:
         raise AppError(400, "GitHub URL must include owner and repository name")
+    if len(parts) != 2:
+        raise AppError(400, "GitHub URL must be a repository root URL like https://github.com/<owner>/<repo>")
 
     owner = parts[0]
     repo = parts[1]

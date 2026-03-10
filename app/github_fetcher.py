@@ -1,4 +1,5 @@
 import base64
+import os
 from urllib.parse import urlparse
 
 import httpx
@@ -6,6 +7,38 @@ import httpx
 from app.errors import AppError
 
 GITHUB_API_BASE = "https://api.github.com"
+
+
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "api-repo-summarizer",
+    }
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _is_rate_limited(response: httpx.Response) -> bool:
+    if response.status_code == 429:
+        return True
+    if response.status_code != 403:
+        return False
+
+    headers = {str(key).lower(): str(value) for key, value in getattr(response, "headers", {}).items()}
+    if headers.get("x-ratelimit-remaining") == "0":
+        return True
+
+    try:
+        payload = response.json()
+    except Exception:
+        return False
+
+    if isinstance(payload, dict):
+        message = str(payload.get("message", "")).lower()
+        return "rate limit" in message
+    return False
 
 
 def parse_github_url(url: str) -> tuple[str, str]:
@@ -43,10 +76,7 @@ async def _github_get(client: httpx.AsyncClient, path: str, params: dict | None 
     response = await client.get(
         f"{GITHUB_API_BASE}{path}",
         params=params,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "api-repo-summarizer",
-        },
+        headers=_github_headers(),
     )
     return response
 
@@ -58,7 +88,7 @@ async def fetch_repo_tree(owner: str, repo: str) -> tuple[dict, list[dict], str]
             repo_resp = await _github_get(client, f"/repos/{owner}/{repo}")
             if repo_resp.status_code == 404:
                 raise AppError(404, "Repository not found or not public")
-            if repo_resp.status_code in {403, 429}:
+            if _is_rate_limited(repo_resp):
                 raise AppError(429, "GitHub API rate limit exceeded")
             if repo_resp.status_code >= 400:
                 raise AppError(502, f"GitHub API error: HTTP {repo_resp.status_code}")
@@ -73,7 +103,7 @@ async def fetch_repo_tree(owner: str, repo: str) -> tuple[dict, list[dict], str]
                 f"/repos/{owner}/{repo}/git/trees/{default_branch}",
                 params={"recursive": 1},
             )
-            if tree_resp.status_code in {403, 429}:
+            if _is_rate_limited(tree_resp):
                 raise AppError(429, "GitHub API rate limit exceeded")
             if tree_resp.status_code >= 400:
                 raise AppError(502, f"Failed to fetch repository tree: HTTP {tree_resp.status_code}")
@@ -93,7 +123,7 @@ async def fetch_file_content(owner: str, repo: str, path: str) -> str | None:
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await _github_get(client, f"/repos/{owner}/{repo}/contents/{path}")
-            if response.status_code in {403, 429}:
+            if _is_rate_limited(response):
                 raise AppError(429, "GitHub API rate limit exceeded")
             if response.status_code == 404:
                 return None
